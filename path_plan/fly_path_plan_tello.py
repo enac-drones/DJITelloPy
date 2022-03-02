@@ -66,8 +66,8 @@ def main():
     # NEW CASES 
     # Case 1 : 3 Vehicles with and without source. No collision in both
     vehicle_name_list =   ['V1', 'V2', 'V3']
-    # vehicle_source_list = [0., 0., 0.]
-    vehicle_source_list = [0.45, 0., 0.3]
+    vehicle_source_list = [0., 0., 0.]
+    # vehicle_source_list = [0.45, 0., 0.3]
     vehicle_goal_list = [([1, -3, 0.5], 5, 0.0001), ([-2.5, -2.5, 0.5], 5, 0.0002), ([-1.5, 2, 0.2], 5, 0.0) ]# goal,goal_strength all 5, safety 0.001 for V1 safety = 0 when there are sources
     vehicle_goto_goal_list =[[0.5,-np.pi/4,0,0],[0.5,np.pi,0,0], [0.5,np.pi/2,0,0] ] # altitude,AoA,t_start,Vinf=0.5,0.5,1.5
     vehicle_pos_list = [[0.1, 2.1, 0.5],[2., 1.5, 0.5], [0, -3, 0.5]]
@@ -112,7 +112,7 @@ def main():
 
     #### Initialize the logger #################################
     logger = Logger(logging_freq_hz=30, #int(ARGS.simulation_freq_hz/AGGR_PHY_STEPS),
-                    num_drones=num_vehicles, duration_sec=100 )
+                    num_drones=num_vehicles, ) #duration_sec=100 )
 
     if visualize:
         # PyBullet Visualization ==============
@@ -131,28 +131,6 @@ def main():
         ### Add Buildings ################################
         add_buildings(physicsClientId=physicsClient, version=arena_version)
 
-        # # Buildings for PyBullet
-        # scaling_factor=1.5
-        # buildings = [ (2.5, 2.5), (2.5, -.5), (1.5,-1.5), (-2.5,-2.5) ]
-
-        # for x,y in buildings:
-        #     p.loadURDF("building.urdf",
-        #                [x, y, 1.85],
-        #                p.getQuaternionFromEuler([0, 0, 0]),
-        #                globalScaling=scaling_factor,
-        #                physicsClientId=physicsClient
-        #                )
-
-        # scaling_factor=1.8
-        # buildings = [(-1, 1), (-3,3)]
-
-        # for x,y in buildings:
-        #     p.loadURDF("building_cylinder.urdf",
-        #                [x, y, 1.85],
-        #                p.getQuaternionFromEuler([0, 0, 0]),
-        #                globalScaling=scaling_factor,
-        #                physicsClientId=physicsClient
-        #                )
 
     print('Connecting to Tello Swarm...')
     swarm.connect()
@@ -196,7 +174,7 @@ def main():
 
         # Main loop :
         trace_count = 0
-        while time.time()-sim_start_time < 151:
+        while time.time()-sim_start_time < 131:
             starttime= time.time()
             # flow_vels = Flow_Velocity_Calculation(vehicle_list,Arena)
             for i, vehicle in enumerate(vehicle_list):
@@ -258,8 +236,9 @@ def main():
             for i, vehicle in enumerate(vehicle_list):
                 logger.log(drone=i,
                            timestamp=time.time()-sim_start_time,
-                           state= np.hstack([vehicle.position, swarm.tellos[i].get_velocity_enu(), np.zeros(14)]),#obs[str(j)]["state"],
-                           control=np.hstack([TARGET_VELS[i], FLOW_VELS[i], np.zeros(6)])
+                           state= np.hstack([vehicle.position, vehicle.velocity, np.zeros(14)]),#obs[str(j)]["state"],
+                           control=np.hstack([TARGET_VELS[i], FLOW_VELS[i], np.zeros(6)]),
+                           sim=False
                            # control=np.hstack([TARGET_VEL[j, wp_counters[j], 0:3], np.zeros(9)])
                            )
             # print(f'Step time = {time.time()-starttime}')
