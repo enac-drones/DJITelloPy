@@ -11,10 +11,59 @@ from typing import Optional, Union, Type, Dict
 import cv2 # type: ignore
 from .enforce_types import enforce_types
 
+import numpy as np
+import math
 
 threads_initialized = False
 drones: Optional[dict] = {}
 client_socket: socket.socket
+
+
+
+def magnitude(x, y, z):
+    return math.sqrt((x ** 2) + (y ** 2) + (z**2))
+
+
+def dot(a, b):
+    return sum(i * j for i, j in zip(a, b))
+
+
+def angle_between(a, b):
+    angle = math.degrees(math.acos(dot(a, b) / (magnitude(*a) * magnitude(*b))))
+    return angle
+
+
+def limit_magnitude(vector, max_magnitude, min_magnitude = 0.0):
+    if sum(vector) == 0 :
+      return [0., 0., 0.]
+    else:
+      mag = magnitude(*vector)
+      if mag > max_magnitude:
+          normalizing_factor = max_magnitude / mag
+      elif mag < min_magnitude:
+          normalizing_factor = min_magnitude / mag
+      else: return vector
+
+      return [value * normalizing_factor for value in vector]
+
+
+_BOID_RANGE = 3.0
+_BOID_VIEW_ANGLE = 360
+_BOID_COLLISION_DISTANCE = 0.9
+_OBSTACLE_COLLISION_DISTANCE = 1.5
+_WALL_COLLISION_DISTANCE = 1.0
+_MAX_COLLISION_VELOCITY = 0.2
+# _CHANGE_VECTOR_LENGTH = 15.0
+_MAX_SPEED = 1.0
+_MIN_SPEED = 0.0
+# _BOUNDARY_SLOP = 50.0
+
+_COHESION_FACTOR = 0.2# 2.0
+_ALIGNMENT_FACTOR = 0.04 #5.50
+_BOID_AVOIDANCE_FACTOR = 2.0#3.0
+_OBSTACLE_AVOIDANCE_FACTOR = 1.0
+_WALL_COLLISION_FACTOR = 1.0
+_ATTRACTOR_FACTOR = 1.0
 
 
 @enforce_types
@@ -101,6 +150,14 @@ class Tello:
         self.retry_count = retry_count
         self.last_received_command_timestamp = time.time()
         self.last_rc_control_timestamp = time.time()
+        self.ac_id = None
+        self.position_enu = np.zeros(3)
+        self.velocity_enu = np.zeros(3)
+        self.quat = np.zeros(4)
+        self.rpy = np.zeros(3)
+        self.heading = 0.
+        self.velocity_setpoint = np.zeros(3)
+        self.size = 0.0
 
         if not threads_initialized:
             # Run Tello command responses UDP receiver on background
@@ -327,6 +384,182 @@ class Tello:
         """
         return self.get_state_field('agz')
 
+    # use property and setter func !!!
+    def set_ac_id(self,ac_id):
+        self.ac_id = ac_id
+    def set_position_enu(self,pos):
+        self.position_enu = pos
+    def set_velocity_enu(self, vel):
+        self.velocity_enu = vel
+    def set_heading(self,psi):
+        ''' This receives the heading from Volieres Optitrack and prepared 
+        for Paparazzis heading info , so for down looking Z !!! :( :( :( '''
+        psi_converted = -psi
+        self.heading = psi_converted
+    def set_quaternion(self,quat):
+        self.quat = quat
+
+    def get_ac_id(self):
+        return self.ac_id
+    def get_position_enu(self):
+        return self.position_enu
+    def get_velocity_enu(self):
+        return self.velocity_enu
+    def get_heading(self):
+        return self.heading
+    def get_quaternion(self):
+        return self.quat
+
+    def determine_nearby_boids(self, all_boids):
+        """Note, this can be done more efficiently if performed globally,
+        rather than for each individual boid.
+        """
+
+        for boid in all_boids:
+            diff = (boid.position_enu[0] - self.position_enu[0], boid.position_enu[1] - self.position_enu[1], boid.position_enu[2] - self.position_enu[2])
+            if (boid != self and
+                  magnitude(*diff) <= _BOID_RANGE and
+                  angle_between(self.velocity_enu, diff) <= _BOID_VIEW_ANGLE):
+                yield boid
+        return
+
+
+    def average_position(self, nearby_boids):
+        # take the average position of all nearby boids, and move the boid towards that point
+        if len(nearby_boids) > 0:
+            sum_x, sum_y, sum_z = 0.0, 0.0, 0.0
+            for boid in nearby_boids:
+                sum_x += boid.position_enu[0]
+                sum_y += boid.position_enu[1]
+                sum_z += boid.position_enu[2]
+
+            average_x, average_y, average_z = (sum_x / len(nearby_boids), sum_y / len(nearby_boids), sum_z / len(nearby_boids))
+            return [average_x -self.position_enu[0], average_y - self.position_enu[1], average_z - self.position_enu[2]]
+        else:
+            return [0.0, 0.0, 0.0]
+
+
+    def average_velocity(self, nearby_boids):
+        # take the average velocity of all nearby boids
+        # todo - combine this function with average_position
+        if len(nearby_boids) > 0:
+            sum_x, sum_y, sum_z = 0.0, 0.0, 0.0
+            for boid in nearby_boids:
+                sum_x += boid.velocity_enu[0]
+                sum_y += boid.velocity_enu[1]
+                sum_z += boid.velocity_enu[2]
+
+            average_x, average_y, average_z = (sum_x / len(nearby_boids), sum_y / len(nearby_boids), sum_z / len(nearby_boids))
+            return [average_x - self.velocity_enu[0], average_y - self.velocity_enu[1], average_z - self.velocity_enu[2]]
+        else:
+            return [0.0, 0.0, 0.0]
+
+
+    def avoid_collisions(self, objs, collision_distance):
+        # determine nearby objs using distance only
+        nearby_objs = (
+          obj for obj in objs
+          if (obj != self and
+              magnitude(obj.position_enu[0] - self.position_enu[0],
+                        obj.position_enu[1] - self.position_enu[1],
+                        obj.position_enu[2] - self.position_enu[2])
+              - self.size <= collision_distance))
+
+        c = [0.0, 0.0, 0.0]
+        for obj in nearby_objs:
+            diff = obj.position_enu[0] - self.position_enu[0], obj.position_enu[1] - self.position_enu[1], obj.position_enu[2] - self.position_enu[2]
+            inv_sqr_magnitude = 1 / ((magnitude(*diff) - self.size) ** 2)
+
+            c[0] = c[0] - inv_sqr_magnitude * diff[0]
+            c[1] = c[1] - inv_sqr_magnitude * diff[1]
+            c[2] = c[2] - inv_sqr_magnitude * diff[2]
+        return limit_magnitude(c, _MAX_COLLISION_VELOCITY)
+
+    def polygon_wall(self, points, collision_distance):
+        distance = []
+        for i in range(len(points)-1):
+            r = points[i+1]-points[i]
+            n = r/math.sqrt((r[0] ** 2) + (r[1] ** 2))
+            r2 = points[i] - self.position_enu[:2]
+            d = r2-(dot(r2,n)*n)
+            dist = math.sqrt((d[0] ** 2) + (d[1] ** 2))
+            distance.append(dist)
+
+        min_dist = min(distance)
+        if min_dist <= collision_distance:
+            i = distance.index(min_dist)
+            r = points[i+1]-points[i]
+            n = r/math.sqrt((r[0] ** 2) + (r[1] ** 2))
+            nt = [-n[1], n[0]]
+            return [n[1], -n[0], 0.]
+        else:
+            return [0., 0., 0.]
+
+    def floor_ceiling_wall(self, heights, collision_distance):
+        ''' heights : [floor_level, ceiling_level] Ex: [0., 8.]'''
+        if heights[1] - self.position_enu[2] <= collision_distance:
+            return [0., 0., -1.]
+        elif self.position_enu[2] - heights[0] <= collision_distance:
+            return [0., 0., 1]
+        else:
+            return [0., 0., 0.]
+
+
+    def attraction(self, attractors):
+        # generate a vector that moves the boid towards the attractors
+        a = [0.0, 0.0, 0.0]
+        if not attractors:
+            return a
+
+        for attractor in attractors:
+            a[0] += attractor.position_enu[0] - self.position_enu[0]
+            a[1] += attractor.position_enu[1] - self.position_enu[1]
+            a[2] += attractor.position_enu[2] - self.position_enu[2]
+
+        return a
+
+    def update(self, all_boids, attractors, obstacles, wall_points, heights):
+        nearby_boids = list(self.determine_nearby_boids(all_boids))
+        # print('Nearby boids nr : ', len(nearby_boids))
+
+        # update the boid's direction based on several behavioural rules
+        cohesion_vector = self.average_position(nearby_boids)
+        alignment_vector = self.average_velocity(nearby_boids)
+        # print(alignment_vector)
+        attractor_vector = self.attraction(attractors)
+        boid_avoidance_vector = self.avoid_collisions(all_boids, _BOID_COLLISION_DISTANCE)
+        obstacle_avoidance_vector = self.avoid_collisions(obstacles, _OBSTACLE_COLLISION_DISTANCE)
+        polygon_wall_vector = self.polygon_wall(wall_points, _WALL_COLLISION_DISTANCE)
+        floor_ceiling_vector = self.floor_ceiling_wall(heights, _WALL_COLLISION_DISTANCE)
+        # print(polygon_wall_vector)
+
+        self.change_vectors = [
+            (_COHESION_FACTOR, cohesion_vector),
+            (_ALIGNMENT_FACTOR, alignment_vector),
+            (_ATTRACTOR_FACTOR, attractor_vector),
+            (_BOID_AVOIDANCE_FACTOR, boid_avoidance_vector),
+            (_OBSTACLE_AVOIDANCE_FACTOR, obstacle_avoidance_vector),
+            (_WALL_COLLISION_FACTOR, polygon_wall_vector),
+            (_WALL_COLLISION_FACTOR, floor_ceiling_vector)]
+
+        self.velocity_setpoint = self.velocity_enu.copy()
+        for factor, vec in self.change_vectors:
+            self.velocity_setpoint[0] += factor *vec[0]
+            self.velocity_setpoint[1] += factor *vec[1]
+            self.velocity_setpoint[2] += factor *vec[2]
+
+        # ensure that the boid's velocity is <= _MAX_SPEED
+        if sum(self.velocity_setpoint[:3])==0.:
+            self.velocity_setpoint = np.array([0., 0., 0.])
+        else:
+            vel_sp = limit_magnitude(self.velocity_setpoint[:3], _MAX_SPEED, _MIN_SPEED)
+            mag = magnitude(*vel_sp)
+            if mag == 0.:
+                self.velocity_setpoint = np.array([0., 0., 0.])
+            else:
+                self.velocity_setpoint = vel_sp
+
+
     def get_lowest_temperature(self) -> int:
         """Get lowest temperature
         Returns:
@@ -461,13 +694,13 @@ class Tello:
         self.LOGGER.info("Response {}: '{}'".format(command, response))
         return response
 
-    def send_command_without_return(self, command: str):
+    def send_command_without_return(self, command: str, verbose=False):
         """Send command to Tello without expecting a response.
         Internal method, you normally wouldn't call this yourself.
         """
         # Commands very consecutive makes the drone not respond to them. So wait at least self.TIME_BTW_COMMANDS seconds
-
-        self.LOGGER.info("Send command (no response expected): '{}'".format(command))
+        if verbose:
+            self.LOGGER.info("Send command (no response expected): '{}'".format(command))
         client_socket.sendto(command.encode('utf-8'), self.address)
 
     def send_control_command(self, command: str, timeout: int = RESPONSE_TIMEOUT) -> bool:
@@ -826,6 +1059,32 @@ class Tello:
                 clamp100(yaw_velocity)
             )
             self.send_command_without_return(cmd)
+
+    def send_velocity_enu(self, vel_enu, heading):
+        k = 70.
+        def RBI_pprz(psi):
+            cp = np.cos(psi)
+            sp = np.sin(psi)
+            return np.array([[sp, cp, 0.],
+                            [cp, -sp, 0.],
+                            [0., 0., 1.]])
+        def RBI(psi):
+            cp = np.cos(psi)
+            sp = np.sin(psi)
+            return np.array([[cp, sp, 0.],
+                            [-sp, cp, 0.],
+                            [0., 0., 1.]])
+        # self.position_enu
+        V_err_enu = vel_enu - self.velocity_enu
+        R = RBI(self.heading)
+        V_err_xyz = R.dot(V_err_enu)
+        err_heading = heading - self.heading
+        # print(f'Heading : {self.heading:.3f}')
+        # print(f'Vel_ENU   : {self.velocity_enu[0]:.3f}  {self.velocity_enu[1]:.3f}  {self.velocity_enu[2]:.3f}')
+        # print(f'V_err_ENU : {V_err_enu[0]:.3f}  {V_err_enu[1]:.3f}  {V_err_enu[2]:.3f}')
+        # print(f'V_err_XYZ : {V_err_xyz[0]:.3f}  {V_err_xyz[1]:.3f}  {V_err_xyz[2]:.3f}')
+        self.send_rc_control(int(-V_err_xyz[1]*k),int(V_err_xyz[0]*k),int(V_err_xyz[2]*k), int(-err_heading*k))
+
 
     def set_wifi_credentials(self, ssid: str, password: str):
         """Set the Wi-Fi SSID and password. The Tello will reboot afterwords.
