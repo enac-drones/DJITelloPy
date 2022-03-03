@@ -1061,7 +1061,7 @@ class Tello:
             self.send_command_without_return(cmd)
 
     def send_velocity_enu(self, vel_enu, heading):
-        k = 70.
+        k = 100.
         def RBI_pprz(psi):
             cp = np.cos(psi)
             sp = np.sin(psi)
@@ -1085,6 +1085,11 @@ class Tello:
         # print(f'V_err_XYZ : {V_err_xyz[0]:.3f}  {V_err_xyz[1]:.3f}  {V_err_xyz[2]:.3f}')
         self.send_rc_control(int(-V_err_xyz[1]*k),int(V_err_xyz[0]*k),int(V_err_xyz[2]*k), int(-err_heading*k))
 
+    def fly_to_enu(self,position_enu):
+        ''' Flies to desired ENU position using velocity control'''
+        pos_error = position_enu - self.position_enu
+        vel_enu = pos_error*1.2 - self.velocity_enu
+        self.send_velocity_enu(vel_enu,self.heading)
 
     def set_wifi_credentials(self, ssid: str, password: str):
         """Set the Wi-Fi SSID and password. The Tello will reboot afterwords.
