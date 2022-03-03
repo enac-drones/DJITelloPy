@@ -7,7 +7,9 @@ import numpy as np
 
 # from path_plan_w_panel import ArenaMap, Vehicle, Flow_Velocity_Calculation_0
 
-from path_plan_w_panel import ArenaMap, Vehicle, Flow_Velocity_Calculation
+from path_plan_w_panel import ArenaMap, Flow_Velocity_Calculation #Vehicle
+from building import Building
+from vehicle import Vehicle
 
 # For pybullet :
 import pybullet as p
@@ -65,9 +67,9 @@ def main():
 
     # NEW CASES 
     # Case 1 : 3 Vehicles with and without source. No collision in both
-    vehicle_name_list =   ['V1', 'V2', 'V3']
-    vehicle_source_list = [0., 0., 0.]
-    # vehicle_source_list = [0.45, 0., 0.3]
+    vehicle_name_list =   ['61', '62', '63']
+    # vehicle_source_list = [0., 0., 0.]
+    vehicle_source_list = [0.3, 0.3, 0.3]
     vehicle_goal_list = [([1, -3, 0.5], 5, 0.0001), ([-2.5, -2.5, 0.5], 5, 0.0002), ([-1.5, 2, 0.2], 5, 0.0) ]# goal,goal_strength all 5, safety 0.001 for V1 safety = 0 when there are sources
     vehicle_goto_goal_list =[[0.5,-np.pi/4,0,0],[0.5,np.pi,0,0], [0.5,np.pi/2,0,0] ] # altitude,AoA,t_start,Vinf=0.5,0.5,1.5
     vehicle_pos_list = [[0.1, 2.1, 0.5],[2., 1.5, 0.5], [0, -3, 0.5]]
@@ -114,6 +116,14 @@ def main():
     logger = Logger(logging_freq_hz=30, #int(ARGS.simulation_freq_hz/AGGR_PHY_STEPS),
                     num_drones=num_vehicles, ) #duration_sec=100 )
 
+    print('Connecting to Tello Swarm...')
+    swarm.connect()
+    print('Connected to Tello Swarm...')
+
+    ac_id_list = [[_[0], _[1]] for _ in ac_list]
+    voliere = VolierePosition(ac_id_list, swarm.tellos, freq=40)
+
+
     if visualize:
         # PyBullet Visualization ==============
         physicsClient = p.connect(p.GUI)
@@ -125,19 +135,14 @@ def main():
         vehicleStartPos = [0, 0, 0]
         vehicleStartOrientation = p.getQuaternionFromEuler([0, 0, 0])
         # Generate a list of vehicles for the pyBullet sim vizu.
-        quadrotors = [p.loadURDF("tello.urdf", _quadStartPos, vehicleStartOrientation) for _quadStartPos in vehicle_pos_list]
+        quadrotors = [p.loadURDF("tello.urdf", swarm.tellos[i].get_position_enu(), vehicleStartOrientation) for i in range(num_vehicles)]
         p.resetDebugVisualizerCamera( cameraDistance=6.5, cameraYaw=0, cameraPitch=-40, cameraTargetPosition=[0.0, 0.0, 0.0])
         
         ### Add Buildings ################################
         add_buildings(physicsClientId=physicsClient, version=arena_version)
 
 
-    print('Connecting to Tello Swarm...')
-    swarm.connect()
-    print('Connected to Tello Swarm...')
 
-    ac_id_list = [[_[0], _[1]] for _ in ac_list]
-    voliere = VolierePosition(ac_id_list, swarm.tellos, freq=40)
 
 
     print("Starting Natnet3.x interface at %s" % ("1234567"))
@@ -152,29 +157,30 @@ def main():
         nr_vehicle = len(id_list)
         # fields[0].gvf_parameter = 700./nr_vehicle
 
-        # Debug loop :
-        # while 0:
+        # # Debug loop :
+        # while 1:
         #     for i, vehicle in enumerate(vehicle_list):
         #         vehicle.position = swarm.tellos[i].get_position_enu()
         #         vehicle.velocity = swarm.tellos[i].get_velocity_enu()
         #         # print(f'Vehicle position East : {vehicle.position[0]:.3f} North : {vehicle.position[1]:.3f}  Up : {vehicle.position[2]:.3f}')
 
-        #     # for i,id in enumerate(id_list):
-        #     for i, vehicle in enumerate(vehicle_list):
+        #     for i,id in enumerate(id_list):
+        #     # for i, vehicle in enumerate(vehicle_list):
         #         pos_desired = np.array([0., 0., 0.5])
-        #         pos_error = pos_desired - vehicle.position
-        #         vel = pos_error*1 # just a proportional gain to generate reference velocity
+        #         # pos_error = pos_desired - vehicle.position
+        #         # vel = pos_error*1 # just a proportional gain to generate reference velocity
         #         # print(f'Vehicle Velocity East : {vel[0]:.3f} North : {vel[1]:.3f}  Up : {vel[2]:.3f}')
-        #         heading = 0.
+        #         # heading = 0.
         #         # vel = np.array([0.3, 0.0, 0.])
-        #         swarm.tellos[i].send_velocity_enu(vel, heading)
+        #         # swarm.tellos[i].send_velocity_enu(vel, heading)
+        #         swarm.tellos[i].fly_to_enu(pos_desired)
         #     sleep(0.2)
 
 
 
         # Main loop :
         trace_count = 0
-        while time.time()-sim_start_time < 131:
+        while time.time()-sim_start_time < 65:
             starttime= time.time()
             # flow_vels = Flow_Velocity_Calculation(vehicle_list,Arena)
             for i, vehicle in enumerate(vehicle_list):
@@ -212,7 +218,7 @@ def main():
                 norm = np.linalg.norm(flow_vels[i])
                 flow_vels[i] = flow_vels[i]/norm
                 flow_vels[i][2] = 0.0
-                limited_norm = np.clip(norm,0., 0.3)
+                limited_norm = np.clip(norm,0., 0.4)
                 fixed_speed = 1.
 
                 # # Fixed speed trial

@@ -189,7 +189,7 @@ def main_path_plan():
     #### Define and parse (optional) arguments for the script ##
     parser = argparse.ArgumentParser(description='Velocity control example using VelocityAviary')
     parser.add_argument('--drone',              default=['tello'],     type=str,    help='Drone model (default: CF2X)', metavar='', choices=DroneModel)
-    parser.add_argument('--gui',                default=True,        type=str2bool,      help='Whether to use PyBullet GUI (default: True)', metavar='')
+    parser.add_argument('--gui',                default=False,        type=str2bool,      help='Whether to use PyBullet GUI (default: True)', metavar='')
     parser.add_argument('--record_video',       default=False,       type=str2bool,      help='Whether to record a video (default: False)', metavar='')
     parser.add_argument('--plot',               default=True,        type=str2bool,      help='Whether to plot the simulation results (default: True)', metavar='')
     parser.add_argument('--user_debug_gui',     default=False,       type=str2bool,      help='Whether to add debug lines and parameters to the GUI (default: False)', metavar='')
@@ -199,6 +199,7 @@ def main_path_plan():
     parser.add_argument('--control_freq_hz',    default=48,          type=int,           help='Control frequency in Hz (default: 48)', metavar='')
     parser.add_argument('--flow_calc_freq_hz',  default=24,          type=int,           help='Vector field calculation frequency in Hz (default: 5)', metavar='')
     parser.add_argument('--duration_sec',       default=50,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
+    # parser.add_argument('--duration_sec',       default=90,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
     ARGS = parser.parse_args()
 
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
@@ -241,18 +242,21 @@ def main_path_plan():
     # vehicle_goto_goal_list =[[0.5,0,0,0],[0.7,0,0,0], [0.9,0,0,0] ]
     # vehicle_pos_list = [[-2.5, 2, 0.5],[-3, -3, 0.7], [2, 0.1, 0.9]]
 
-    # NEW CASES 
-    # Case 1 : 3 Vehicles with and without source. No collision in both
+    # # NEW CASES 
+    # # Case 1 : 3 Vehicles with and without source. No collision in both
+    # vehicle_name_list =   ['V1', 'V2', 'V3']
+    # vehicle_source_list = [0., 0., 0.]
+    # # vehicle_source_list = [0.45, 0., 0.3]
+    # vehicle_goal_list = [([1, -3, 0.5], 5, 0.0001), ([-2.5, -2.5, 0.5], 5, 0.0002), ([-1.5, 2, 0.2], 5, 0.0) ]# goal,goal_strength all 5, safety 0.001 for V1 safety = 0 when there are sources
+    # vehicle_goto_goal_list =[[0.5,-np.pi/4,0,0],[0.5,np.pi,0,0], [0.5,np.pi/2,0,0] ] # altitude,AoA,t_start,Vinf=0.5,0.5,1.5
+    # vehicle_pos_list = [[0.1, 2.1, 0.5],[2., 1.5, 0.5], [0, -3, 0.5]]
+
+    # Case 4 : 3 Vehicles Green has priority
     vehicle_name_list =   ['V1', 'V2', 'V3']
-    vehicle_source_list = [0., 0., 0.]
-    # vehicle_source_list = [0.45, 0., 0.3]
-    vehicle_goal_list = [([1, -3, 0.5], 5, 0.0001), ([-2.5, -2.5, 0.5], 5, 0.0002), ([-1.5, 2, 0.2], 5, 0.0) ]# goal,goal_strength all 5, safety 0.001 for V1 safety = 0 when there are sources
+    vehicle_source_list = [0., 0.3, 2.] # Source_strength
+    vehicle_goal_list = [([1.5, -1.5, 0.5], 5, 0.00), ([-2.5, -3 , 0.50], 5, 0.00), ([-2, 2, 0.5], 5, 0.00) ]# goal,goal_strength all 5, safety 0.001 for V1 safety = 0 when there are sources
     vehicle_goto_goal_list =[[0.5,-np.pi/4,0,0],[0.5,np.pi,0,0], [0.5,np.pi/2,0,0] ] # altitude,AoA,t_start,Vinf=0.5,0.5,1.5
-    vehicle_pos_list = [[0.1, 2.1, 0.5],[2., 1.5, 0.5], [0, -3, 0.5]]
-
-
-
-
+    vehicle_pos_list = [[0.1, 2.1, 0.5],[-2, 2, 0.5], [-2.5, -3, 0.5]]
 
 
 
@@ -261,6 +265,7 @@ def main_path_plan():
     INIT_XYZS = np.array(vehicle_pos_list)
     INIT_RPYS = np.zeros([num_vehicles,3])
     TARGET_VELS = np.zeros([num_vehicles,3])
+    FLOW_VELS = np.zeros([num_vehicles,3])
 
     for vehicle,set_goal,goto_goal,pos in zip(vehicle_list,vehicle_goal_list,vehicle_goto_goal_list,vehicle_pos_list):
         vehicle.Set_Goal(set_goal[0],set_goal[1],set_goal[2])
@@ -336,20 +341,24 @@ def main_path_plan():
                 # vehicle.velocity = np.array([vel[1],vel[0],vel[2]])
 
             for vehicle_nr, vehicle in enumerate(vehicle_list):
-                V_err = flow_vels[vehicle_nr] #- vehicle.velocity # FIXME Check this out !!!
-                V_err[2] = 0. # np.clip(V_err[2],-0.07,0.07)
-                mag = np.linalg.norm(V_err) #magnitude(*V_err)
-                mag = np.clip(mag, 0., 1.5)
+                V_des = flow_vels[vehicle_nr] #- vehicle.velocity # FIXME Check this out !!!
+                mag = np.linalg.norm(V_des)
+                V_des_unit = V_des/mag
+                V_des_unit[2] = 0. 
+                mag = np.clip(mag, 0., 0.5)
+                mag_converted = mag/8.3 # This is Tellos max speed 30Km/h
+
                 # print(f' X : {V_err[0]:.3f} , Y : {V_err[1]:.3f} , Z : {V_err[2]:.3f} Mag : {mag}')
-                action[str(vehicle_nr)] = np.array([V_err[0]/mag,V_err[1]/mag,V_err[2]/mag, mag/2.]) # This is not incremental ! It is direct desired action.
-                TARGET_VELS[vehicle_nr] = flow_vels[vehicle_nr]
+                action[str(vehicle_nr)] = np.array([V_des_unit[0],V_des_unit[1],V_des_unit[2], mag_converted]) # This is not incremental ! It is direct desired action.
+                FLOW_VELS[vehicle_nr] = flow_vels[vehicle_nr]
+                TARGET_VELS[vehicle_nr] = np.array([V_des_unit*mag_converted])
 
         # #### Log the simulation ####################################
         for j in range(num_vehicles):
             logger.log(drone=j,
                        timestamp=i/env.SIM_FREQ,
                        state= obs[str(j)]["state"],
-                       control=np.hstack([TARGET_VELS[j], np.zeros(9)])
+                       control=np.hstack([TARGET_VELS[j], FLOW_VELS[j], np.zeros(6)])
                        )
 
         #### Vehicle Trace #################################
