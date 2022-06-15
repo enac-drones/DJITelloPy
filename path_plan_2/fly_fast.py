@@ -35,7 +35,7 @@ from path_plan_forward_propagate import ArenaMap , Cases, Flow_Velocity_Calculat
 
 from Logger import Logger
 
-
+# import threading
 
 def main():
     # PyBullet Visualization
@@ -64,20 +64,28 @@ def main():
     # Case = Cases(61,Arena,'manual')
     # vehicle_list = Case.Vehicle_list
 
+    # Arena 6 - Case 121
 
-    Arena  = ArenaMap(6,'manual')
-    ArenaR = ArenaMap(6,'manual')
+
+    Arena  = ArenaMap(61,'manual')
+    ArenaR = ArenaMap(61,'manual')
     Arena.Inflate(radius = 0.2) #0.1
     Arena.Panelize(size= 0.01) #0.08
     Arena.Calculate_Coef_Matrix(method = 'Vortex')
-    Case = Cases(121,Arena,'manual')
+    Case = Cases(61,Arena,'manual')
     vehicle_list = Case.Vehicle_list
+    # maglist=[0.05, 0. , -0.05]
+    # vinfmag_list = [0.05, 0.025, 0.01, 0. , -0.01, -0.025, -0.05]
+    # vinfmag_list = [0.05, 0.025,  0. , -0.025, -0.05]
+    vinfmag_list = [0.05, 0. , -0.05]
+    dt  = 0.02
+    hor = 3.0
 
 
 
     current_vehicle_list = vehicle_list
 
-    for index,vehicle in enumerate(current_vehicle_list):
+    for i, vehicle in enumerate(current_vehicle_list):
         vehicle.arena = Arena
         vehicle.vehicle_list = current_vehicle_list
 
@@ -102,7 +110,7 @@ def main():
 
     #### Initialize the logger #################################
     logger = Logger(logging_freq_hz=30, #int(ARGS.simulation_freq_hz/AGGR_PHY_STEPS),
-                    num_drones=num_vehicles, traj_len=74) #duration_sec=100 )
+                    num_drones=num_vehicles, traj_nr=len(vinfmag_list), traj_len=int(hor/dt)-1) #duration_sec=100 )
 
     print('Connecting to Tello Swarm...')
     swarm.connect()
@@ -128,7 +136,9 @@ def main():
         # This will run perpetually, and operate on a separate thread.
         voliere.run()
         sleep(3.)
+
         swarm.takeoff()   # DONT FORGET TO TAKE-OFF
+
         # swarm.move_up(int(40))
         # swarm.tellos[0].move_up(int(20))
         # swarm.tellos[1].move_up(int(80))
@@ -145,15 +155,18 @@ def main():
 
 
         # Main loop :
-        # vinfmag_list = [0.05, 0.025, 0.01, 0. , -0.01, -0.025, -0.05]
-        # vinfmag_list = [0.05, 0.025,  0. , -0.025, -0.05]
-        vinfmag_list = [0.05, 0. , -0.05]
+   
         trace_count = 0
         set_vel_time = time.time()
         flight_finished=False
         starttime= time.time()
         vinfmag = 0.
         k=19
+
+        for i, vehicle in enumerate(vehicle_list):
+            vehicle.start_propagate(dt=dt, hor=hor)
+            vehicle.propagated_path=np.zeros((len(vinfmag_list), int(hor/dt)-1, 6))
+
         while time.time()-sim_start_time < 180:
             if time.time()-starttime > 0.05:
                 # print('Step execution duration :',time.time()-starttime )
@@ -186,17 +199,19 @@ def main():
                 for i, vehicle in enumerate(vehicle_list):
                     vehicle.Set_Position(swarm.tellos[i].get_position_enu())
                     vehicle.Set_Velocity(swarm.tellos[i].get_velocity_enu())
-                    if k == 20:
-                        future_path = vehicle.propagate_future_path(maglist=vinfmag_list, hor=1.5,  reset_position = True, set_best_state = True)
-                        best = np.argmin([np.sum(curvature(future_path[i, 30:, 0],future_path[i, 30:, 1])) for i in range(len(vinfmag_list))])
-                        vinfmag = vinfmag_list[best]
-                        print('For vehicle ', str(index), 'Best V_inf is: ', str(vinfmag))
-                        k = 0
-                    vehicle.Go_to_Goal(AoAsgn = np.sign(vinfmag), Vinfmag = np.abs(vinfmag)) 
+                    # print('Voliere position : ', swarm.tellos[i].get_position_enu())
+
+                    # if k == 20:
+                    #     future_path = vehicle.propagate_future_path(maglist=vinfmag_list, hor=1.5,  reset_position = True, set_best_state = True)
+                    #     best = np.argmin([np.sum(curvature(future_path[i, 30:, 0],future_path[i, 30:, 1])) for i in range(len(vinfmag_list))])
+                    #     vinfmag = vinfmag_list[best]
+                    #     print('For vehicle ', str(index), 'Best V_inf is: ', str(vinfmag))
+                    #     k = 0
+                    # vehicle.Go_to_Goal(AoAsgn = np.sign(vinfmag), Vinfmag = np.abs(vinfmag)) 
 
                     # print(f' {i} - Vel : {vehicle.velocity[0]:.3f}  {vehicle.velocity[1]:.3f}  {vehicle.velocity[2]:.3f}')
 
-
+                    # future_path = np.zeros((3,74,6))
 
                 use_panel_flow = 1
                 if use_panel_flow :
@@ -210,7 +225,7 @@ def main():
                         norm = np.linalg.norm(flow_vels[i])
                         flow_vels[i] = flow_vels[i]/norm
                         # flow_vels[i][2] = 0.0
-                        limited_norm = np.clip(norm,0., 1.5)
+                        limited_norm = np.clip(norm,0., 2.0)
                         fixed_speed = 1.
 
                         vel_enu = flow_vels[i]*limited_norm
@@ -218,6 +233,7 @@ def main():
                         heading = 0.
                         
                         vehicle.Set_Desired_Velocity(vel_enu, method='None')
+                        # print(f'Desired Velocity ; {vel_enu}')
 
                         swarm.tellos[i].send_velocity_enu(vehicle.velocity_desired, heading)
                         TARGET_VELS[i]=vehicle.velocity_desired
@@ -227,12 +243,12 @@ def main():
 
 
                     # #### Log the simulation ####################################
-                    for i, vehicle in enumerate(id_list):
+                    for i, vehicle in enumerate(vehicle_list):
                         logger.log(drone=i,
                                    timestamp=time.time()-sim_start_time,
                                    state= np.hstack([swarm.tellos[i].get_position_enu(), swarm.tellos[i].get_velocity_enu(), swarm.tellos[i].get_quaternion(),  np.zeros(10)]),#obs[str(j)]["state"],
                                    control=np.hstack([TARGET_VELS[i], FLOW_VELS[i], np.zeros(6)]), # target_vehicle[0].position]),
-                                   trajectory=future_path, #np.hstack([path, np.zeros(2) ])
+                                   trajectory=vehicle.propagated_path, #np.hstack([path, np.zeros(2) ])
                                    sim=False
                                    # control=np.hstack([TARGET_VEL[j, wp_counters[j], 0:3], np.zeros(9)])
                                    )
@@ -243,6 +259,8 @@ def main():
 
         #### Save the simulation results ###########################
         logger.save(flight_type='agile')
+        for i, vehicle in enumerate(vehicle_list):
+            vehicle.stop_propagate()
         swarm.move_down(int(40))
         swarm.land()
         voliere.stop()
@@ -252,6 +270,8 @@ def main():
     except (KeyboardInterrupt, SystemExit):
         print("Shutting down natnet interfaces...")
         logger.save(flight_type='agile')
+        for i, vehicle in enumerate(vehicle_list):
+            vehicle.stop_propagate()
         swarm.move_down(int(40))
         swarm.land()
         voliere.stop()

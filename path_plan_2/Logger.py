@@ -85,7 +85,7 @@ class Logger(object):
             timestamp,
             state,
             control=np.zeros(12),
-            trajectory=np.zeros((3, 119, 6)),
+            trajectory=np.zeros((3, 74, 6)),
             sim=True
             ):
         """Logs entries for a single simulation step, of a single drone.

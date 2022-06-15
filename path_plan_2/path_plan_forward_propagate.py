@@ -28,6 +28,8 @@ import pdb
 from itertools import compress
 
 
+import threading
+
 # In[2]:
 
 
@@ -432,6 +434,7 @@ class Vehicle():
         self.correction_type = correction_type
         self._arena = None
         self._vehicle_list = []
+        self.propagated_path = None#np.zeros((3,119,6))
 
     @property
     def arena(self):
@@ -443,6 +446,7 @@ class Vehicle():
     @property
     def vehicle_list(self):
         return self._vehicle_list
+
     @vehicle_list.setter
     def vehicle_list(self,vehicle_list):
         self._vehicle_list = vehicle_list
@@ -482,7 +486,7 @@ class Vehicle():
         self.velocity_corrected[2] = 0.
 
 
-    def Set_Goal(self,goal,goal_strength,safety):
+    def Set_Goal(self,goal=[3, 0.5, 0.5],goal_strength=5,safety=0):
         self.goal          = np.array(goal)
         self.sink_strength = goal_strength
         self.safety = safety
@@ -533,50 +537,76 @@ class Vehicle():
     def Update_Position(self):
         self.position = self.Velocity_Calculate(flow_vels)
 
+    def start_propagate(self, maglist=[0.05, 0. , -0.05] ,dyn=dynamics, t0=0., dt=0.02, hor = 2.4, reset_position=True, set_best_state=True):
+        self.propagate = threading.Thread(target=self.propagate_future_path, args=(maglist , dyn, t0, dt, hor, reset_position, set_best_state))
+        self.propagate_running=True
+        self.propagate.start()
+
+    def stop_propagate(self):
+        self.propagate_running=False
+        self.propagate.join()
+
     def propagate_future_path(self,  maglist ,dyn=dynamics, t0=0., dt=0.02, hor = 2.4,reset_position=True, set_best_state=True):
-        Xe           = np.hstack([self.position,self.velocity])
         time_horizon = np.arange(t0 + dt, t0 + hor, dt)
         vinfmag_list = maglist
-        path         = np.zeros((len(vinfmag_list),len(time_horizon),6))
-    # def propagate_future_path(self, dyn=dynamics, t0=0., dt=0.02, reset_position=True, set_best_state=True):
-    #     Xe=np.hstack([self.position,self.velocity])
-    #     time_horizon=np.arange(t0+dt,t0+2.5, dt)
-    #     path=np.zeros((7,len(time_horizon),6))
-    #     vinfmag_list = [0.05, 0.025, 0.01, 0. , -0.01, -0.025, -0.05]
-#         vinfmag_list = [0.2, 0.1, 0.05, 0. , -0.05, -0.1, -0.2]
-        for k,vinfmag_ in enumerate(vinfmag_list):
-            X0 = Xe.copy()
-            ti=t0
-            self.Vinfmag = np.abs(vinfmag_)
-            for i, t_ in enumerate(time_horizon):
-                
-                self.AoA   = (np.arctan2(self.goal[1]-X0[1],self.goal[0]-X0[0])) + np.sign(vinfmag_)*np.pi/2
-                self.V_inf = np.array([self.Vinfmag*np.cos(self.AoA), self.Vinfmag*np.sin(self.AoA)])
-                # FIX ME : This will only work because we have only one vehicle...
-                flow_vels = Flow_Velocity_Calculation(self._vehicle_list, self._arena, method = 'Vortex')
-                V_des = flow_vels[0]
-                mag = np.linalg.norm(V_des)
-                V_des_unit = V_des/mag
-                V_des_unit[2] = 0 
-                mag = np.clip(mag, 0., 1) #0.3 tello 0.5 pprz
-                mag_converted = mag # This is Tellos max speed 30Km/h
-                flow_vels2 = V_des_unit * mag_converted
-                U = flow_vels2 #* self.velocitygain
-                X = scipy.integrate.odeint(dyn, X0, [ti, t_], args=(U,))
-                X0 = X[1].copy()
-                ti=t_
-                path[k,i]=X[1][:6] # Recording position and velocityto the path
-                self.position=X[1][:3]
-                self.velocity=X[1][3:6]
-        if reset_position:
-            self.position[:] = Xe[:3]
-            self.velocity[:] = Xe[3:]
-        if set_best_state:
-            best = np.argmin([np.sum(curvature(path[i, 30:, 0],path[i, 30:, 1])) for i in range(len(vinfmag_list))])
-#             self.position = path[best,-1, :3]
-#             self.velocity = path[best,-1, 3:6]
-            
-        return path
+        # path         = np.zeros((len(vinfmag_list),len(time_horizon),6))
+
+        # Generate a copy of vehicle list to be used on branch simulations
+        vehicle = Vehicle('sim')
+        vehicle.Set_Goal()
+        vehicle.Go_to_Goal()
+
+        propagated_vehicle_list = [vehicle] #self._vehicle_list #.copy()
+
+        # Assuming that there is only one vehicle !
+        # vehicle = propagated_vehicle_list[0]
+        # while 1:
+        #     print('Pos :',self.position, vehicle.position)
+        #     time.sleep(1)
+        while self.propagate_running:
+            Xe = np.hstack([self.position,self.velocity])
+            path         = np.zeros((len(vinfmag_list),len(time_horizon),6))
+
+            for k,vinfmag_ in enumerate(vinfmag_list):
+                X0 = Xe.copy()
+                ti=t0
+
+                # Updating the branch simulation vehicles properties
+                vehicle.Vinfmag = np.abs(vinfmag_)
+                for i, t_ in enumerate(time_horizon):
+                    
+                    vehicle.AoA   = (np.arctan2(self.goal[1]-X0[1],self.goal[0]-X0[0])) + np.sign(vinfmag_)*np.pi/2
+                    vehicle.V_inf = np.array([vehicle.Vinfmag*np.cos(vehicle.AoA), vehicle.Vinfmag*np.sin(vehicle.AoA)])
+                    # FIX ME : This will only work because we have only one vehicle...
+                    flow_vels = Flow_Velocity_Calculation(propagated_vehicle_list, self._arena, method = 'Vortex')
+                    V_des = flow_vels[0]
+                    mag = np.linalg.norm(V_des)
+                    V_des_unit = V_des/mag
+                    V_des_unit[2] = 0 
+                    mag = np.clip(mag, 0., 1) #0.3 tello 0.5 pprz
+                    mag_converted = mag # This is Tellos max speed 30Km/h
+                    flow_vels2 = V_des_unit * mag_converted
+                    U = flow_vels2 #* self.velocitygain
+                    X = scipy.integrate.odeint(dyn, X0, [ti, t_], args=(U,))
+                    X0 = X[1].copy()
+                    ti=t_
+                    path[k,i]=X[1][:6] # Recording position and velocityto the path
+                    vehicle.position=X[1][:3]
+                    vehicle.velocity=X[1][3:6]
+                    # print('Positions : ', vehicle.position, self.position)
+
+            if reset_position:
+                vehicle.position[:] = Xe[:3]
+                vehicle.velocity[:] = Xe[3:]
+            if set_best_state:
+                best = np.argmin([np.sum(curvature(path[i, 30:, 0],path[i, 30:, 1])) for i in range(len(vinfmag_list))])
+    #             self.position = path[best,-1, :3]
+    #             self.velocity = path[best,-1, 3:6]
+            self.propagated_path = path
+            vinfmag = vinfmag_list[best]
+            print('For vehicle ', str(best), 'Best V_inf is: ', str(vinfmag))
+            self.Go_to_Goal(AoAsgn = np.sign(vinfmag), Vinfmag = np.abs(vinfmag))
+
 
 #     # These should be changed to properties with decorators!!!!
 #     def set_AoA(self,):
