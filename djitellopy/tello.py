@@ -394,8 +394,14 @@ class Tello:
     def set_heading(self,psi):
         ''' This receives the heading from Volieres Optitrack and prepared 
         for Paparazzis heading info , so for down looking Z !!! :( :( :( '''
-        psi_converted = -psi
-        self.heading = psi_converted
+        def norm_ang(x):
+            while x > np.pi :
+                x -= 2*np.pi
+            while x < -np.pi :
+                x += 2*np.pi
+            return x
+        psi_converted = -psi+np.pi/2
+        self.heading = norm_ang(psi_converted)
     def set_quaternion(self,quat):
         self.quat = quat
 
@@ -1074,22 +1080,32 @@ class Tello:
             return np.array([[cp, sp, 0.],
                             [-sp, cp, 0.],
                             [0., 0., 1.]])
+        def norm_ang(x):
+            while x > np.pi :
+                x -= 2*np.pi
+            while x < -np.pi :
+                x += 2*np.pi
+            return x
+        heading = norm_ang(heading)
         # self.position_enu
         V_err_enu = vel_enu - self.velocity_enu
         R = RBI(self.heading)
         V_err_xyz = R.dot(V_err_enu)
-        err_heading = heading - self.heading
+        err_heading = norm_ang(norm_ang(heading) - self.heading)
+        # direction = 1 if abs(err_heading) < np.pi else -1
         # print(f'Heading : {self.heading:.3f}')
         # print(f'Vel_ENU   : {self.velocity_enu[0]:.3f}  {self.velocity_enu[1]:.3f}  {self.velocity_enu[2]:.3f}')
         # print(f'V_err_ENU : {V_err_enu[0]:.3f}  {V_err_enu[1]:.3f}  {V_err_enu[2]:.3f}')
         # print(f'V_err_XYZ : {V_err_xyz[0]:.3f}  {V_err_xyz[1]:.3f}  {V_err_xyz[2]:.3f}')
         self.send_rc_control(int(-V_err_xyz[1]*k),int(V_err_xyz[0]*k),int(V_err_xyz[2]*k), int(-err_heading*k))
 
-    def fly_to_enu(self,position_enu):
+    def fly_to_enu(self,position_enu, heading=None):
         ''' Flies to desired ENU position using velocity control'''
+        if heading is None:
+            heading = self.heading
         pos_error = position_enu - self.position_enu
         vel_enu = pos_error*1.2 - self.velocity_enu
-        self.send_velocity_enu(vel_enu,self.heading)
+        self.send_velocity_enu(vel_enu, heading)
 
     def set_wifi_credentials(self, ssid: str, password: str):
         """Set the Wi-Fi SSID and password. The Tello will reboot afterwords.
