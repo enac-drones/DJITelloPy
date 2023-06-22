@@ -42,8 +42,8 @@ def main():
     visualize = False#True
 
     #---------- OpTr- ACID - -----IP------
-    # ac_list = [['60', '60', '192.168.1.60'],]
-    ac_list =  [['61', '61', '192.168.1.61'],]
+    ac_list = [['63', '63', '192.168.1.63'],]
+    # ac_list =  [['61', '61', '192.168.1.61'],]
                 # ['62', '62', '192.168.1.62'],
                 # ['63', '63', '192.168.1.63'] ]
 
@@ -66,9 +66,11 @@ def main():
 
     # Arena 6 - Case 121
 
+    Arena  = ArenaMap(65,'manual')
+    ArenaR = ArenaMap(65,'manual')
 
-    Arena  = ArenaMap(61,'manual')
-    ArenaR = ArenaMap(61,'manual')
+    # Arena  = ArenaMap(61,'manual')
+    # ArenaR = ArenaMap(61,'manual')
     Arena.Inflate(radius = 0.2) #0.1
     Arena.Panelize(size= 0.01) #0.08
     Arena.Calculate_Coef_Matrix(method = 'Vortex')
@@ -118,12 +120,12 @@ def main():
 
     ac_id_list = [[_[0], _[1]] for _ in ac_list]
 
-    # ac_id_list.append(['888', '888']) # Add a moving target
-    # target_vehicle = [Target('888')]
+    ac_id_list.append(['888', '888']) # Add a moving target
+    target_vehicle = [Target('888')]
     # all_vehicles = swarm.tellos+target_vehicle
 
-    # voliere = VolierePosition(ac_id_list, swarm.tellos+target_vehicle, freq=40)
-    voliere = VolierePosition(ac_id_list, swarm.tellos, freq=20)
+    voliere = VolierePosition(ac_id_list, swarm.tellos+target_vehicle, freq=20)
+    # voliere = VolierePosition(ac_id_list, swarm.tellos, freq=20)
     # pdb.set_trace()
 
 
@@ -181,11 +183,11 @@ def main():
                 if flight_finished: break
 
                 # Get Target position to follow
-                # target_position = target_vehicle[0].position
+                target_position = target_vehicle[0].position
 
-                # for vehicle_nr, vehicle in enumerate(vehicle_list):
-                #     # print('Heyyo :', target_position, type(target_position))
-                #     vehicle.Set_Next_Goal(target_position)
+                for vehicle_nr, vehicle in enumerate(vehicle_list):
+                    # print('Heyyo :', target_position, type(target_position))
+                    vehicle.Set_Next_Goal(target_position)
                     
                     # # if vehicle.state :
                     # if vehicle.distance_to_destination<0.50:
@@ -225,7 +227,7 @@ def main():
                         norm = np.linalg.norm(flow_vels[i])
                         flow_vels[i] = flow_vels[i]/norm
                         # flow_vels[i][2] = 0.0
-                        limited_norm = np.clip(norm,0., 2.0)
+                        limited_norm = np.clip(norm,0., 1.6)
                         fixed_speed = 1.
 
                         vel_enu = flow_vels[i]*limited_norm

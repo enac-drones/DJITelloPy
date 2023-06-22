@@ -269,6 +269,15 @@ class ArenaMap():
                                                     Building([[3.5, -2.5, 1.2], [3, -2.5, 1.2], [3, -1, 1.2], [3.5, -1.4, 1.2]])]
             elif version == 61:
                 self.buildings = [Building([[1.0, 0.5, 2], [0.75, 0.067, 2], [0.25, 0.067, 2], [0.0, 0.5, 2], [0.25, 0.933, 2], [0.75, 0.933, 2]])]
+            elif version == 65:
+                self.buildings = [Building([[3.0, 2.0, 4.2], [2.75, 1.567, 4.2], [2.25, 1.567, 4.2], [2.0, 2.0, 4.2], [2.25, 2.433, 4.2], [2.75, 2.433, 4.2]]), #AddCircularBuilding( 2.5, 2, 6, 0.5, 1.2, angle = 0)
+                                Building([[1.0, 3.0, 4.5], [0.75, 2.567, 4.5], [0.25, 2.567, 4.5], [0.0, 3.0, 4.5], [0.25, 3.433, 4.5], [0.75, 3.433, 4.5]]), #AddCircularBuilding( 0.5, 3, 6, 0.5, 1.5, angle = 0)
+                                Building([[1.0, 0.5, 4], [0.75, 0.067, 4], [0.25, 0.067, 4], [0.0, 0.5, 4], [0.25, 0.933, 4], [0.75, 0.933, 4]]), #AddCircularBuilding( 0.5, 0.5, 6, 0.5, 2, angle = 0)  
+                                Building([[-2.65, 1.5, 4.5], [-3.0, 1.15, 4.5], [-3.35, 1.5, 4.5], [-3.0, 1.85, 4.5]]), #AddCircularBuilding( -3, 1.5, 4, 0.35, 1.5, angle = 0)
+                                Building([[-2.65, -1.5, 4.5], [-3.0, -1.85, 4.5], [-3.35, -1.5, 4.5], [-3.0, -1.15, 4.5]]), #AddCircularBuilding( -3, -1.5, 4, 0.35, 1.5, angle = 0) 
+                                Building([[-1.15, -0.2, 4.5], [-1.5, -0.55, 4.5], [-1.85, -0.2, 4.5], [-1.5, 0.15, 4.5]]), #AddCircularBuilding( -1.5, -0.2, 4, 0.35, 1.5, angle = 0)
+                                Building([[1.5, -2.5, 4.2], [1, -2.5, 4.2], [1, -1.4, 4.2], [1.5, -1, 4.2]]),
+                                Building([[3.5, -2.5, 4.2], [3, -2.5, 4.2], [3, -1, 4.2], [3.5, -1.4, 4.2]])]
 
         elif generate == 'random':
             self.buildings = []
@@ -467,6 +476,10 @@ class Vehicle():
         self.velocity_desired = vel
         self.correct_vel(method=method)
 
+    def Set_Next_Goal(self,goal, goal_strength=5):
+        self.state         = 0
+        self.goal          = goal
+        # self.sink_strength = goal_strength NOT USED FOR NOW
 
     def correct_vel(self, method='None'):
 
