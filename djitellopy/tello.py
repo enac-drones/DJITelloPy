@@ -155,6 +155,7 @@ class Tello:
         self.velocity_enu = np.zeros(3)
         self.quat = np.zeros(4)
         self.rpy = np.zeros(3)
+        self.ang_vel = np.zeros(3)
         self.heading = 0.
         self.velocity_setpoint = np.zeros(3)
         self.size = 0.0
@@ -404,6 +405,8 @@ class Tello:
         self.heading = norm_ang(psi_converted)
     def set_quaternion(self,quat):
         self.quat = quat
+    def set_angular_velocity(self,ang_vel):
+        self.ang_vel = ang_vel
 
     def get_ac_id(self):
         return self.ac_id
